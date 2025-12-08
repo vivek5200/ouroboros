@@ -28,14 +28,14 @@ Ouroboros is an autonomous agent designed to self-correct and refactor codebases
 
 | Module | Status | Description |
 |:-------|:-------|:------------|
-| **Phase 1** | ✅ Complete | Core logic and basic refactoring agents. |
-| **Phase 2** | 🚧 In Progress | Advanced context retention and vector database integration. |
+| **Phase 1** | ✅ Complete | Code parsing and graph database construction. |
+| **Phase 2** | ✅ Complete | LLM-powered refactor plan generation with 6 providers. |
 
 ---
 
 ### Installation
 
 ```bash
-git clone [https://github.com/vivek5200/ouroboros.git](https://github.com/vivek5200/ouroboros.git)
+git clone https://github.com/vivek5200/ouroboros.git
 cd ouroboros
 pip install -r requirements.txt

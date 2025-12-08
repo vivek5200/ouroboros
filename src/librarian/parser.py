@@ -264,6 +264,9 @@ class CodeParser:
         # Check if async
         is_async = any(child.type == 'async' for child in node.children)
         
+        # Extract function calls
+        calls = self._extract_python_function_calls(node, lines)
+        
         return FunctionDefinition(
             name=func_name,
             signature=signature,
@@ -272,7 +275,7 @@ class CodeParser:
             is_async=is_async,
             is_exported=True,
             parent_class=parent_class,
-            calls=[]  # Call graph extraction done separately
+            calls=calls
         )
     
     # ===== JavaScript/TypeScript Extraction =====
@@ -422,6 +425,9 @@ class CodeParser:
         # Check if async
         is_async = any(child.type == 'async' for child in node.children)
         
+        # Extract function calls from body
+        calls = self._extract_js_function_calls(node, lines)
+        
         return FunctionDefinition(
             name=func_name,
             signature=signature,
@@ -430,7 +436,7 @@ class CodeParser:
             is_async=is_async,
             is_exported=False,
             parent_class=parent_class,
-            calls=[]
+            calls=calls
         )
     
     def _extract_js_method_node(self, node: Node, lines: List[str], parent_class: str) -> Optional[FunctionDefinition]:
@@ -449,6 +455,9 @@ class CodeParser:
         # Check if async
         is_async = any(child.type == 'async' for child in node.children)
         
+        # Extract function calls from body
+        calls = self._extract_js_function_calls(node, lines)
+        
         return FunctionDefinition(
             name=method_name,
             signature=signature,
@@ -457,8 +466,80 @@ class CodeParser:
             is_async=is_async,
             is_exported=False,
             parent_class=parent_class,
-            calls=[]
+            calls=calls
         )
+    
+    # ===== Call Graph Extraction =====
+    
+    def _extract_python_function_calls(self, node: Node, lines: List[str]) -> List[str]:
+        """
+        Extract function calls from a Python function body.
+        Uses fuzzy matching - captures function name only, ignoring arguments.
+        """
+        calls = []
+        
+        def traverse(n: Node):
+            if n.type == 'call':
+                # Get function name
+                func_node = n.child_by_field_name('function')
+                if func_node:
+                    if func_node.type == 'identifier':
+                        # Simple function call: foo()
+                        call_name = self._get_node_text(func_node, lines)
+                        calls.append(call_name)
+                    elif func_node.type == 'attribute':
+                        # Method call: obj.method()
+                        # Get the method name only (rightmost identifier)
+                        attr_node = func_node.child_by_field_name('attribute')
+                        if attr_node:
+                            call_name = self._get_node_text(attr_node, lines)
+                            calls.append(call_name)
+            
+            # Recurse through children
+            for child in n.children:
+                traverse(child)
+        
+        # Start traversal from function body
+        body = node.child_by_field_name('body')
+        if body:
+            traverse(body)
+        
+        return calls
+    
+    def _extract_js_function_calls(self, node: Node, lines: List[str]) -> List[str]:
+        """
+        Extract function calls from a JavaScript/TypeScript function body.
+        Uses fuzzy matching - captures function name only, ignoring arguments.
+        """
+        calls = []
+        
+        def traverse(n: Node):
+            if n.type == 'call_expression':
+                # Get function name
+                func_node = n.child_by_field_name('function')
+                if func_node:
+                    if func_node.type == 'identifier':
+                        # Simple function call: foo()
+                        call_name = self._get_node_text(func_node, lines)
+                        calls.append(call_name)
+                    elif func_node.type == 'member_expression':
+                        # Method call: obj.method()
+                        # Get the property name only (rightmost identifier)
+                        prop_node = func_node.child_by_field_name('property')
+                        if prop_node:
+                            call_name = self._get_node_text(prop_node, lines)
+                            calls.append(call_name)
+            
+            # Recurse through children
+            for child in n.children:
+                traverse(child)
+        
+        # Start traversal from function body
+        body = node.child_by_field_name('body')
+        if body:
+            traverse(body)
+        
+        return calls
     
     # ===== Utility Methods =====
     

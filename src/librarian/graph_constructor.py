@@ -223,28 +223,114 @@ class GraphConstructor:
     
     def construct_call_edges(self) -> int:
         """
-        Create CALLS edges between functions.
-        Note: This is a simplified implementation that detects function calls by name.
+        Create CALLS edges between functions based on call graph analysis.
         
         Returns:
             Number of edges created
         """
         console.print("[cyan]Constructing function call relationships...[/cyan]")
         
+        # Get all files from database
         with self.db.driver.session() as session:
-            # Get all functions
             result = session.run("""
-                MATCH (fn:Function)
-                RETURN fn.signature AS signature, fn.name AS name
+                MATCH (f:File)
+                RETURN f.path AS path
             """)
-            functions = {record["name"]: record["signature"] for record in result}
+            files = [record["path"] for record in result]
         
         edges_created = 0
         
-        # This is a placeholder - full call graph requires deeper AST analysis
-        console.print(f"[yellow]⚠[/yellow] Call graph construction not yet implemented (requires deeper AST traversal)")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            console=console
+        ) as progress:
+            task = progress.add_task("[cyan]Processing function calls...", total=len(files))
+            
+            for file_path in files:
+                try:
+                    if not Path(file_path).exists():
+                        progress.advance(task)
+                        continue
+                    
+                    parsed = self.parser.parse_file(file_path)
+                    if not parsed:
+                        progress.advance(task)
+                        continue
+                    
+                    # Process function calls in top-level functions
+                    for func_def in parsed.get('functions', []):
+                        for call_name in func_def.calls:
+                            if self._create_call_edge(func_def.name, call_name, file_path):
+                                edges_created += 1
+                    
+                    # Process function calls in class methods
+                    for class_def in parsed.get('classes', []):
+                        for method in class_def.methods:
+                            for call_name in method.calls:
+                                if self._create_call_edge(method.name, call_name, file_path):
+                                    edges_created += 1
+                    
+                except Exception as e:
+                    self.stats['errors'].append(f"Call edges for {Path(file_path).name}: {e}")
+                
+                progress.advance(task)
         
+        console.print(f"[green]✓[/green] Created {edges_created} CALLS edges")
+        self.stats['calls_created'] = edges_created
         return edges_created
+    
+    def _create_call_edge(self, caller_name: str, callee_name: str, file_path: str) -> bool:
+        """
+        Create a CALLS edge between two functions using fuzzy matching.
+        
+        Args:
+            caller_name: Name of the calling function
+            callee_name: Name of the called function
+            file_path: Path of file containing the caller
+        
+        Returns:
+            True if edge was created, False otherwise
+        """
+        try:
+            with self.db.driver.session() as session:
+                # Find caller function
+                result = session.run("""
+                    MATCH (f:File {path: $path})-[:CONTAINS*1..2]->(caller:Function {name: $caller_name})
+                    RETURN caller
+                    LIMIT 1
+                """, path=file_path, caller_name=caller_name)
+                
+                if not result.single():
+                    return False
+                
+                # Find callee function (fuzzy match by name only)
+                # Try in same file first, then anywhere in codebase
+                result = session.run("""
+                    MATCH (callee:Function {name: $callee_name})
+                    RETURN callee
+                    ORDER BY 
+                        CASE WHEN exists((f:File {path: $path})-[:CONTAINS*1..2]->(callee)) 
+                        THEN 0 ELSE 1 END
+                    LIMIT 1
+                """, callee_name=callee_name, path=file_path)
+                
+                if not result.single():
+                    return False
+                
+                # Create CALLS edge
+                self.db.create_calls_edge(
+                    caller_name=caller_name,
+                    callee_name=callee_name,
+                    file_path=file_path,
+                    prompt_id=generate_prompt_id("call_graph")
+                )
+                
+                return True
+        except Exception:
+            return False
     
     def construct_all_edges(self, base_dir: str) -> Dict[str, int]:
         """

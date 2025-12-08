@@ -1,43 +1,49 @@
-# Ouroboros Documentation Site Configuration
-title: Ouroboros Documentation
+# ------------------------------------
+# Ouroboros Site Configuration
+# ------------------------------------
+title: Ouroboros Docs
 description: AI-powered code refactoring system
-baseurl: "" # the subpath of your site, e.g. /blog
-url: "https://docs.vivekbendre.me" # the base hostname & protocol
+url: "https://docs.vivekbendre.me"
 
-# Theme Configuration
-remote_theme: pages-themes/cayman@v0.2.0
-plugins:
-  - jekyll-remote-theme
-# Alternative popular themes (uncomment one to use):
-# remote_theme: pages-themes/minimal@v0.2.0
-# remote_theme: pages-themes/slate@v0.2.0
-# remote_theme: pages-themes/architect@v0.2.0
-# remote_theme: pages-themes/hacker@v0.2.0
-# remote_theme: pages-themes/midnight@v0.2.0
+# ------------------------------------
+# THEME SETTINGS (Just the Docs)
+# ------------------------------------
+remote_theme: just-the-docs/just-the-docs
 
-# Build settings
+# Enable the built-in search engine
+search_enabled: true
+search:
+  # Split pages into sections for better search results
+  heading_level: 2
+  previews: 3
+
+# Visual Appearance
+color_scheme: dark # Options: light, dark, system (default: system)
+
+# Call to Action button in top right
+aux_links:
+  "View on GitHub":
+    - "//github.com/vivek5200/ouroboros"
+
+# Footer Content
+footer_content: "Copyright &copy; 2025 Vivek Bendre. Distributed by an MIT license."
+
+# ------------------------------------
+# BUILD SETTINGS
+# ------------------------------------
 markdown: kramdown
 plugins:
   - jekyll-remote-theme
-  - jekyll-feed
   - jekyll-seo-tag
+  - jekyll-feed
 
-# GitHub metadata
+# GitHub Metadata (Auto-populates some variables)
 repository: vivek5200/ouroboros
 github_username: vivek5200
 
-# Navigation
-navigation:
-  - title: Home
-    url: /
-  - title: Phase 1
-    url: /PHASE1_COMPLETE
-  - title: Phase 2
-    url: /PHASE2_DOCUMENTATION
-  - title: LM Studio Setup
-    url: /LMSTUDIO_SETUP
-
-# Exclude from processing
+# ------------------------------------
+# EXCLUDES
+# ------------------------------------
 exclude:
   - venv/
   - __pycache__/
@@ -47,4 +53,5 @@ exclude:
   - .git/
   - .gitignore
   - requirements.txt
-  - README.md
+  - Gemfile
+  - Gemfile.lock

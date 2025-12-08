@@ -1,3 +1,8 @@
+---
+layout: default
+title: Phase 2
+nav_order: 3
+---
 # LM Studio Setup Guide for Phase 2 Testing
 
 ## Why LM Studio?

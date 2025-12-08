@@ -1,3 +1,8 @@
+---
+layout: default
+title: Phase 1
+nav_order: 2
+---
 # Phase 1: The Librarian - COMPLETION REPORT
 
 ## 🎉 Status: ALL TASKS COMPLETE (4/4)

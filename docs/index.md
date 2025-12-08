@@ -1,36 +1,41 @@
 ---
-layout: default
+layout: home
 title: Home
+nav_order: 1
 ---
 
-# Ouroboros Documentation
+# Ouroboros
+{: .fs-9 }
 
-Welcome to the official documentation for **Ouroboros** - an AI-powered code refactoring system.
+**AI-powered code refactoring system**
+{: .fs-6 .fw-300 }
 
-## Contents
-
-### Phase 1: The Librarian
-- [Phase 1 Documentation](PHASE1_COMPLETE.md) - Code parsing and graph database construction
-
-### Phase 2: The Reasoner
-- [Phase 2 Complete Documentation](PHASE2_DOCUMENTATION.md) - LLM-powered refactor plan generation
-- [LM Studio Setup Guide](LMSTUDIO_SETUP.md) - FREE local LLM testing with DeepSeek-R1
-
-### Legacy Documentation
-- [Phase 2 Bridge Documentation](PHASE2_BRIDGE.md) - Bridge implementation (archived)
+[Get Started](./PHASE2_DOCUMENTATION){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 } [View on GitHub](https://github.com/vivek5200/ouroboros){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
-## Quick Links
+## Project Overview
 
-- **Repository:** [github.com/vivek5200/ouroboros](https://github.com/vivek5200/ouroboros)
-- **Latest Commit:** `4e09d28` (December 9, 2025)
-- **Status:** Phase 2 Complete ✅ - Ready for Phase 3
+Ouroboros is an autonomous agent designed to self-correct and refactor codebases. It utilizes advanced LLM integration to analyze project structure and implement optimizations.
 
-## Key Features
+### Key Features
 
-✅ **6 LLM Providers** - Claude, Gemini, Jamba, OpenAI, LM Studio, Mock  
-✅ **Cost Optimized** - Gemini 2.5 Flash at $0.0007/request (98% cheaper than Claude)  
-✅ **100% Test Coverage** - 6/6 tests passing  
-✅ **Neo4j Integration** - Full Phase 1 graph database support  
-✅ **FREE Local Testing** - LM Studio with DeepSeek-R1
+* **⚡ Automated Refactoring**: Intelligent code analysis.
+* **🧠 LLM Integration**: Powered by LM Studio / Local LLMs.
+* **🔄 Self-Healing**: Detects errors and proposes fixes iteratively.
+
+### Documentation Status
+
+| Module | Status | Description |
+|:-------|:-------|:------------|
+| **Phase 1** | ✅ Complete | Core logic and basic refactoring agents. |
+| **Phase 2** | 🚧 In Progress | Advanced context retention and vector database integration. |
+
+---
+
+### Installation
+
+```bash
+git clone [https://github.com/vivek5200/ouroboros.git](https://github.com/vivek5200/ouroboros.git)
+cd ouroboros
+pip install -r requirements.txt

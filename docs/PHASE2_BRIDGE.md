@@ -1,3 +1,8 @@
+---
+layout: default
+title: Phase 2 Bridge (Archived)
+nav_order: 5
+---
 # Phase 2 Bridge Implementation
 
 **Status:** ✅ Complete (4/4 tests passing)  

@@ -1,7 +1,7 @@
 ---
 layout: default
-title: Phase 2
-nav_order: 3
+title: LM Studio Setup
+nav_order: 4
 ---
 # LM Studio Setup Guide for Phase 2 Testing
 

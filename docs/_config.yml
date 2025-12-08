@@ -8,7 +8,7 @@ url: "https://docs.vivekbendre.me"
 # ------------------------------------
 # THEME SETTINGS (Just the Docs)
 # ------------------------------------
-remote_theme: just-the-docs/just-the-docs
+remote_theme: just-the-docs/just-the-docs@v0.10.0
 
 # Enable the built-in search engine
 search_enabled: true

@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Phase 2 Bridge (Archived)
+title: "Bridge (Archived)"
 nav_order: 5
 ---
 # Phase 2 Bridge Implementation

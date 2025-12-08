@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Phase 2
+title: "Phase 2: The Reasoner"
 nav_order: 3
 ---
 # Phase 2: The Reasoner - Complete Documentation

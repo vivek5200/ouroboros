@@ -13,3 +13,10 @@ tree-sitter-typescript>=0.23.2
 # CLI & UI
 typer>=0.9.0
 rich>=13.7.0
+
+# LLM Providers (Phase 2)
+anthropic>=0.39.0      # Claude 3.5 Sonnet
+ai21>=2.17.0           # Jamba 1.5 Mini
+openai>=1.54.0         # GPT-4 (alternative)
+google-generativeai>=0.8.0  # Gemini 1.5 Pro (2M context)
+tiktoken>=0.8.0        # Token counting

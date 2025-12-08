@@ -1,0 +1,10 @@
+{
+  "plan_id": "rename_calculate_sum_to_compute_total_001",
+  "description": "Rename function calculate_sum to compute_total. The function 'calculate_sum' was not found in the provided codebase context.",
+  "primary_changes": [],
+  "dependency_impacts": [],
+  "execution_order": [],
+  "risk_level": "low",
+  "estimated_files_affected": 0,
+  "rollback_plan": null
+}

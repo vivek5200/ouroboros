@@ -139,7 +139,7 @@ class RefactorPlan(BaseModel):
     )
     
     # Risk assessment
-    risk_level: Literal["low", "medium", "high"] = Field(
+    risk_level: Literal["low", "medium", "high", "critical"] = Field(
         "medium", 
         description="Risk level of this refactor"
     )

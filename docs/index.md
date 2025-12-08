@@ -1,3 +1,8 @@
+---
+layout: default
+title: Home
+---
+
 # Ouroboros Documentation
 
 Welcome to the official documentation for **Ouroboros** - an AI-powered code refactoring system.
@@ -19,7 +24,7 @@ Welcome to the official documentation for **Ouroboros** - an AI-powered code ref
 ## Quick Links
 
 - **Repository:** [github.com/vivek5200/ouroboros](https://github.com/vivek5200/ouroboros)
-- **Latest Commit:** `cef63a6` (December 9, 2025)
+- **Latest Commit:** `4e09d28` (December 9, 2025)
 - **Status:** Phase 2 Complete ✅ - Ready for Phase 3
 
 ## Key Features

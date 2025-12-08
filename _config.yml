@@ -1,0 +1,47 @@
+# Ouroboros Documentation Site Configuration
+title: Ouroboros Documentation
+description: AI-powered code refactoring system
+baseurl: "" # the subpath of your site, e.g. /blog
+url: "https://docs.vivekbendre.me" # the base hostname & protocol
+
+# Theme Configuration
+theme: jekyll-theme-cayman
+# Alternative popular themes (uncomment one to use):
+# theme: jekyll-theme-minimal
+# theme: jekyll-theme-slate
+# theme: jekyll-theme-architect
+# theme: jekyll-theme-hacker
+# theme: jekyll-theme-midnight
+
+# Build settings
+markdown: kramdown
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# GitHub metadata
+repository: vivek5200/ouroboros
+github_username: vivek5200
+
+# Navigation
+navigation:
+  - title: Home
+    url: /
+  - title: Phase 1
+    url: /PHASE1_COMPLETE
+  - title: Phase 2
+    url: /PHASE2_DOCUMENTATION
+  - title: LM Studio Setup
+    url: /LMSTUDIO_SETUP
+
+# Exclude from processing
+exclude:
+  - venv/
+  - __pycache__/
+  - "*.pyc"
+  - tests/
+  - .pytest_cache/
+  - .git/
+  - .gitignore
+  - requirements.txt
+  - README.md

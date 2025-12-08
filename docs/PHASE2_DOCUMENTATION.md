@@ -1,7 +1,8 @@
-# Phase 2 Implementation Status Report
+# Phase 2: The Reasoner - Complete Documentation
 **Date:** December 9, 2025  
 **Status:** ✅ FULLY IMPLEMENTED AND TESTED  
-**Test Coverage:** 6/6 tests passing (100%)
+**Test Coverage:** 6/6 tests passing (100%)  
+**Commit:** `cef63a6` on GitHub
 
 ---
 
@@ -418,6 +419,110 @@ Phase 2 (The Reasoner)
 
 ---
 
+## Usage Examples
+
+### Quick Start
+
+```python
+from src.reasoner import Reasoner, ReasonerConfig, LLMProvider
+
+# Initialize with Gemini (cheapest option)
+config = ReasonerConfig(provider=LLMProvider.GEMINI)
+reasoner = Reasoner(config)
+
+# Generate refactor plan
+plan = reasoner.generate_refactor_plan(
+    task_description="Rename function calculate_sum to compute_total",
+    target_file="src/math_utils.py"
+)
+
+print(f"Plan ID: {plan.plan_id}")
+print(f"Risk Level: {plan.risk_level}")
+print(f"Files Affected: {plan.estimated_files_affected}")
+```
+
+### CLI Usage
+
+```bash
+# Test connection
+python scripts/generate_refactor_plan.py test-connection --provider gemini
+
+# Generate plan with cost estimation
+python scripts/generate_refactor_plan.py \
+  "Rename function foo to bar" \
+  --file src/module.py \
+  --provider gemini \
+  --output plan.json
+
+# Run test suite
+python scripts/test_phase2_reasoner.py
+
+# Health check
+python scripts/check_phase2_implementation.py
+```
+
+### Environment Setup
+
+```bash
+# Required for Gemini (recommended - cheapest)
+export GEMINI_API_KEY="your-key-here"
+
+# Optional: Other providers
+export ANTHROPIC_API_KEY="sk-ant-..."
+export AI21_API_KEY="..."
+export OPENAI_API_KEY="sk-..."
+
+# Optional: LM Studio for FREE local inference
+export LMSTUDIO_BASE_URL="http://localhost:1234/v1"
+```
+
+---
+
+## Installation Guide
+
+### 1. Install Dependencies
+
+```bash
+cd "g:\Just a Idea"
+.\venv\Scripts\Activate.ps1
+
+# Install all Phase 2 requirements
+pip install anthropic>=0.75.0
+pip install ai21>=4.3.0
+pip install openai>=2.9.0
+pip install google-generativeai>=0.8.5
+pip install tiktoken>=0.12.0
+pip install typer>=0.20.0
+pip install rich>=14.2.0
+```
+
+### 2. Set Up API Keys
+
+**Gemini (Recommended - $0.0007/request):**
+```bash
+$env:GEMINI_API_KEY = "your-gemini-api-key"
+```
+
+**Claude (Best Quality - $0.0600/request):**
+```bash
+$env:ANTHROPIC_API_KEY = "sk-ant-your-key"
+```
+
+**LM Studio (FREE - Local):**
+1. Download from https://lmstudio.ai/
+2. Install DeepSeek-R1 or Qwen3 model
+3. Start Local Server
+4. No API key needed!
+
+### 3. Verify Installation
+
+```bash
+python scripts/check_phase2_implementation.py
+# Should show: 7/7 checks passed ✅
+```
+
+---
+
 ## Conclusion
 
 **Phase 2 (The Reasoner) is FULLY IMPLEMENTED and PRODUCTION READY** with the following highlights:
@@ -439,6 +544,7 @@ The system is ready for:
 
 ---
 
-**Generated:** December 9, 2025  
-**Verification Method:** `scripts/check_phase2_implementation.py`  
-**Test Results:** `scripts/test_phase2_reasoner.py` (6/6 passing)
+**Repository:** [github.com/vivek5200/ouroboros](https://github.com/vivek5200/ouroboros)  
+**Commit:** `cef63a6` (December 9, 2025)  
+**Verification:** `scripts/check_phase2_implementation.py` (7/7 checks passed)  
+**Test Results:** `scripts/test_phase2_reasoner.py` (6/6 tests passing)

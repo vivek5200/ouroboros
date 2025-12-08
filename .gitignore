@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+venv_old/
+env/
+ENV/
+.venv
+
+# Neo4j
+neo4j_data/
+neo4j_logs/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Test artifacts
+tests/synthetic_benchmarks/output/
+artifact_metadata.json
+
+# Interim reports (consolidated into PHASE1_COMPLETE.md)
+TASK1_VALIDATION.md
+TASK2_REPORT.md
+TASK3_SUMMARY.md

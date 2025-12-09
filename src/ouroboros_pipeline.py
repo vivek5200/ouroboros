@@ -155,6 +155,7 @@ class OuroborosCodeGenerator:
         ai21_api_key: Optional[str] = None,
         diffusion_config: Optional[DiffusionConfig] = None,
         use_mock: bool = False,
+        skip_db_init: bool = False,
     ):
         """
         Initialize Ouroboros pipeline.
@@ -166,21 +167,51 @@ class OuroborosCodeGenerator:
             ai21_api_key: AI21 API key for Jamba (optional if use_mock=True)
             diffusion_config: Custom diffusion config (optional)
             use_mock: Use mock implementations for testing
+            skip_db_init: Skip database initialization (for testing without Neo4j)
         """
         self.use_mock = use_mock
         
         # Phase 1: Initialize graph database
         logger.info("Initializing Phase 1: Knowledge Graph (Librarian)")
-        self.graph_db = OuroborosGraphDB(
-            uri=neo4j_uri,
-            user=neo4j_user,
-            password=neo4j_password
-        )
-        self.retriever = GraphRetriever(self.graph_db)
+        if skip_db_init or use_mock:
+            logger.warning("Skipping Neo4j initialization (mock/test mode)")
+            # Create mock graph_db and retriever with proper return values
+            from unittest.mock import Mock
+            self.graph_db = Mock()
+            self.graph_db.close = Mock()
+            self.retriever = Mock()
+            # Mock retriever methods to return proper data structures
+            self.retriever.find_nodes = Mock(return_value=[
+                {"id": "mock_file_1", "path": "mock_path", "language": "python"}
+            ])
+            self.retriever.get_nodes_by_property = Mock(return_value=[
+                {"id": "mock_file_1", "path": "mock_path", "language": "python"}
+            ])
+            self.retriever.get_related_nodes = Mock(return_value=[
+                {"id": "mock_func_1", "name": "mock_function", "start_line": 1, "end_line": 10}
+            ])
+            self.retriever.get_node_context = Mock(return_value={
+                "dependencies": [],
+                "callers": [],
+                "imports": []
+            })
+        else:
+            self.graph_db = OuroborosGraphDB(
+                uri=neo4j_uri,
+                user=neo4j_user,
+                password=neo4j_password
+            )
+            self.retriever = GraphRetriever(self.graph_db)
         
         # Phase 2: Initialize reasoner components
         logger.info("Initializing Phase 2: Reasoner")
-        self.dependency_analyzer = DependencyAnalyzer(self.graph_db)
+        if skip_db_init or use_mock:
+            self.dependency_analyzer = Mock()
+            # Mock dependency analyzer methods to return empty list
+            self.dependency_analyzer.get_dependencies = Mock(return_value=[])
+            self.dependency_analyzer.find_dependencies = Mock(return_value=[])
+        else:
+            self.dependency_analyzer = DependencyAnalyzer(self.graph_db)
         
         # Phase 3: Initialize Context Encoder (Jamba)
         logger.info("Initializing Phase 3: Context Encoder (Jamba)")

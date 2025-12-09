@@ -59,8 +59,9 @@ def example_1_basic_generation():
     with OuroborosCodeGenerator(
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
-        neo4j_password="password",
-        use_mock=True
+        neo4j_password="wrong-password",
+        use_mock=True,
+        skip_db_init=True,
     ) as generator:
         
         # Generate patches
@@ -111,7 +112,8 @@ def example_2_batch_generation():
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password="password",
-        use_mock=True
+        use_mock=True,
+        skip_db_init=True,
     ) as generator:
         
         # Generate for multiple files
@@ -155,10 +157,11 @@ def example_3_safe_application():
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password="password",
-        use_mock=True
+        use_mock=True,
+        skip_db_init=True,
     ) as generator:
         
-        # Generate patches
+        # Generate code
         result = generator.generate(
             issue_description="Add error handling to API endpoints",
             target_files=["src/api/routes.py"],
@@ -214,7 +217,8 @@ def example_4_config_comparison():
             neo4j_uri="bolt://localhost:7687",
             neo4j_user="neo4j",
             neo4j_password="password",
-            use_mock=True
+            use_mock=True,
+            skip_db_init=True,
         ) as generator:
             
             result = generator.generate(
@@ -254,7 +258,8 @@ def example_5_with_context_encoding():
         neo4j_user="neo4j",
         neo4j_password="password",
         ai21_api_key="mock_key",  # Would use real key
-        use_mock=True
+        use_mock=True,
+        skip_db_init=True,
     ) as generator:
         
         result = generator.generate(
@@ -289,7 +294,8 @@ def example_6_error_handling():
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password="password",
-        use_mock=True
+        use_mock=True,
+        skip_db_init=True,
     ) as generator:
         
         # Try to generate for non-existent file

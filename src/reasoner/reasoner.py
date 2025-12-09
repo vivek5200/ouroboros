@@ -23,6 +23,7 @@ from src.librarian.graph_db import OuroborosGraphDB
 from src.librarian.retriever import GraphRetriever
 from src.librarian.context_serializer import ContextSerializer, CompressedContextBlock
 from src.architect.schemas import RefactorPlan, ValidationResult
+from src.context_encoder import ContextEncoder
 
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,11 @@ class Reasoner:
         # Database connections
         self.db = OuroborosGraphDB()
         self.retriever = GraphRetriever(self.db)
-        self.serializer = ContextSerializer(format="markdown")  # More token-efficient
+        
+        # Context handling (Phase 2: Serializer, Phase 3: Encoder)
+        self.serializer = ContextSerializer(format="markdown")  # Fast, for <50k tokens
+        self.encoder = ContextEncoder()  # Phase 3: Jamba compression for 200k+ tokens
+        
         self.dependency_analyzer = DependencyAnalyzer(self.db)
         
         logger.info(f"Reasoner initialized with provider: {self.config.provider}")
@@ -75,6 +80,7 @@ class Reasoner:
         target_symbol: Optional[str] = None,
         context_files: Optional[List[str]] = None,
         max_context_tokens: int = 100_000,
+        use_deep_context: bool = False,
     ) -> RefactorPlan:
         """
         Generate a validated refactor plan for the given task.
@@ -85,6 +91,7 @@ class Reasoner:
             target_symbol: Specific symbol to refactor (optional)
             context_files: Additional files to include in context
             max_context_tokens: Maximum tokens for context (respects LLM limits)
+            use_deep_context: Use Phase 3 Jamba encoder for massive context (200k+ tokens)
         
         Returns:
             Validated RefactorPlan
@@ -99,7 +106,8 @@ class Reasoner:
         context_blocks = self._retrieve_context(
             target_file=target_file,
             context_files=context_files,
-            max_tokens=max_context_tokens
+            max_tokens=max_context_tokens,
+            use_deep_context=use_deep_context
         )
         
         if not context_blocks:
@@ -187,9 +195,16 @@ class Reasoner:
         self,
         target_file: Optional[str],
         context_files: Optional[List[str]],
-        max_tokens: int
+        max_tokens: int,
+        use_deep_context: bool = False
     ) -> List[CompressedContextBlock]:
-        """Retrieve and serialize context from graph."""
+        """
+        Retrieve and serialize context from graph.
+        
+        Uses either:
+        - Phase 2: ContextSerializer (markdown, fast, <50k tokens)
+        - Phase 3: ContextEncoder (Jamba compression, 200k+ tokens)
+        """
         
         context_blocks = []
         total_tokens = 0
@@ -198,7 +213,30 @@ class Reasoner:
         if target_file:
             context = self.retriever.get_file_context(target_file)
             if context:
-                block = self.serializer.serialize_file_context(context)
+                if use_deep_context:
+                    # Phase 3: Use Jamba for deep compression
+                    raw_content = self._context_to_raw_string(context)
+                    compressed = self.encoder.compress(
+                        codebase_context=raw_content,
+                        target_files=[target_file],
+                        metadata={"task": "retrieve_context"}
+                    )
+                    # Wrap in CompressedContextBlock for compatibility
+                    block = CompressedContextBlock(
+                        block_id=f"deep_{target_file}",
+                        block_type="file",
+                        content=compressed.summary,
+                        format="markdown",
+                        token_count=compressed.tokens_out
+                    )
+                    logger.info(
+                        f"Deep context compression: {compressed.tokens_in} → "
+                        f"{compressed.tokens_out} tokens (ratio: {compressed.compression_ratio:.1f}x)"
+                    )
+                else:
+                    # Phase 2: Use fast markdown serializer
+                    block = self.serializer.serialize_file_context(context)
+                
                 context_blocks.append(block)
                 total_tokens += block.token_count
         
@@ -290,6 +328,54 @@ class Reasoner:
     def _is_using_fallback(self) -> bool:
         """Check if currently using fallback provider."""
         return self.config.provider == self.config.fallback_provider
+    
+    def _context_to_raw_string(self, context: Dict[str, Any]) -> str:
+        """
+        Convert graph context to raw string for Phase 3 encoding.
+        
+        Args:
+            context: Context dict from GraphRetriever
+        
+        Returns:
+            Raw string representation of the context
+        """
+        parts = []
+        
+        # Add file header
+        if "file_path" in context:
+            parts.append(f"# File: {context['file_path']}\n")
+        
+        # Add imports
+        if "imports" in context and context["imports"]:
+            parts.append("## Imports")
+            for imp in context["imports"]:
+                parts.append(f"- {imp}")
+            parts.append("")
+        
+        # Add classes
+        if "classes" in context:
+            for cls in context["classes"]:
+                parts.append(f"## Class: {cls.get('name', 'Unknown')}")
+                if "methods" in cls:
+                    for method in cls["methods"]:
+                        parts.append(f"  - {method.get('name', 'unknown')}()")
+                parts.append("")
+        
+        # Add functions
+        if "functions" in context:
+            parts.append("## Functions")
+            for func in context["functions"]:
+                parts.append(f"- {func.get('name', 'unknown')}()")
+            parts.append("")
+        
+        # Add full content if available
+        if "content" in context:
+            parts.append("## Full Content")
+            parts.append("```")
+            parts.append(context["content"])
+            parts.append("```")
+        
+        return "\n".join(parts)
     
     def estimate_cost(
         self,

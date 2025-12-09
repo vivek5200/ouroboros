@@ -4,17 +4,27 @@ Handles Neo4j connection with provenance-aware CRUD operations.
 """
 
 import os
+import time
+import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from neo4j import GraphDatabase as Neo4jDriver
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, AuthError
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class OuroborosGraphDB:
     """
     Neo4j connection manager with provenance metadata tracking.
+    
+    Features:
+    - Automatic connection retry with exponential backoff
+    - Connection pooling with configurable pool size
+    - Session timeout and max lifetime management
+    - Comprehensive error handling for auth/network failures
     """
     
     def __init__(
@@ -23,10 +33,15 @@ class OuroborosGraphDB:
         user: Optional[str] = None,
         password: Optional[str] = None,
         model_name: Optional[str] = None,
-        model_version: Optional[str] = None
+        model_version: Optional[str] = None,
+        max_connection_lifetime: int = 3600,  # 1 hour
+        max_connection_pool_size: int = 50,
+        connection_timeout: float = 30.0,
+        max_retry_attempts: int = 3,
+        retry_backoff_factor: float = 2.0
     ):
         """
-        Initialize Neo4j connection.
+        Initialize Neo4j connection with reliability features.
         
         Args:
             uri: Neo4j connection URI (defaults to env NEO4J_URI)
@@ -34,6 +49,11 @@ class OuroborosGraphDB:
             password: Neo4j password (defaults to env NEO4J_PASSWORD)
             model_name: Component name for provenance (defaults to env MODEL_NAME)
             model_version: Component version (defaults to env MODEL_VERSION)
+            max_connection_lifetime: Max lifetime of pooled connections in seconds
+            max_connection_pool_size: Max number of connections in pool
+            connection_timeout: Timeout for establishing connections
+            max_retry_attempts: Number of retry attempts for failed operations
+            retry_backoff_factor: Exponential backoff multiplier
         """
         self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self.user = user or os.getenv("NEO4J_USER", "neo4j")
@@ -41,7 +61,93 @@ class OuroborosGraphDB:
         self.model_name = model_name or os.getenv("MODEL_NAME", "ouroboros-librarian")
         self.model_version = model_version or os.getenv("MODEL_VERSION", "1.0.0")
         
-        self.driver = Neo4jDriver.driver(self.uri, auth=(self.user, self.password))
+        # Retry configuration
+        self.max_retry_attempts = max_retry_attempts
+        self.retry_backoff_factor = retry_backoff_factor
+        
+        # Create driver with connection pool configuration
+        self.driver = Neo4jDriver.driver(
+            self.uri,
+            auth=(self.user, self.password),
+            max_connection_lifetime=max_connection_lifetime,
+            max_connection_pool_size=max_connection_pool_size,
+            connection_timeout=connection_timeout,
+            connection_acquisition_timeout=connection_timeout
+        )
+        
+        # Verify connection on initialization
+        self._verify_connectivity()
+    
+    def _verify_connectivity(self) -> None:
+        """
+        Verify Neo4j connection is working with retry logic.
+        
+        Raises:
+            AuthError: If authentication fails after retries
+            ServiceUnavailable: If Neo4j is unreachable after retries
+        """
+        for attempt in range(self.max_retry_attempts):
+            try:
+                with self.driver.session() as session:
+                    result = session.run("RETURN 1 AS num")
+                    result.single()
+                    logger.info(f"✓ Neo4j connection verified: {self.uri}")
+                    return
+            except AuthError as e:
+                logger.error(f"✗ Neo4j authentication failed: {e}")
+                raise  # Don't retry auth errors
+            except ServiceUnavailable as e:
+                if attempt < self.max_retry_attempts - 1:
+                    wait_time = self.retry_backoff_factor ** attempt
+                    logger.warning(
+                        f"⚠ Neo4j unavailable (attempt {attempt + 1}/{self.max_retry_attempts}), "
+                        f"retrying in {wait_time:.1f}s..."
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"✗ Neo4j connection failed after {self.max_retry_attempts} attempts: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"✗ Unexpected error during connection verification: {e}")
+                raise
+    
+    def _execute_with_retry(self, operation, *args, **kwargs):
+        """
+        Execute a database operation with automatic retry on transient failures.
+        
+        Args:
+            operation: Function to execute
+            *args, **kwargs: Arguments to pass to operation
+        
+        Returns:
+            Result of the operation
+        
+        Raises:
+            Exception: If operation fails after all retries
+        """
+        for attempt in range(self.max_retry_attempts):
+            try:
+                return operation(*args, **kwargs)
+            except (ServiceUnavailable, SessionExpired) as e:
+                if attempt < self.max_retry_attempts - 1:
+                    wait_time = self.retry_backoff_factor ** attempt
+                    logger.warning(
+                        f"⚠ Database operation failed (attempt {attempt + 1}/{self.max_retry_attempts}), "
+                        f"retrying in {wait_time:.1f}s... Error: {e}"
+                    )
+                    time.sleep(wait_time)
+                    # Recreate driver on connection failures
+                    self.driver.close()
+                    self.driver = Neo4jDriver.driver(
+                        self.uri,
+                        auth=(self.user, self.password)
+                    )
+                else:
+                    logger.error(f"✗ Operation failed after {self.max_retry_attempts} attempts: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"✗ Unexpected error in database operation: {e}")
+                raise
     
     def close(self):
         """Close the database connection."""
@@ -110,19 +216,22 @@ class OuroborosGraphDB:
         RETURN f
         """
         
-        with self.driver.session() as session:
-            result = session.run(
-                query,
-                path=path,
-                language=language,
-                content=content,
-                context_checksum=context_checksum,
-                line_count=len(content.split("\n")),
-                size_bytes=len(content.encode("utf-8")),
-                **provenance,
-                **metadata
-            )
-            return dict(result.single()["f"])
+        def _create():
+            with self.driver.session() as session:
+                result = session.run(
+                    query,
+                    path=path,
+                    language=language,
+                    content=content,
+                    context_checksum=context_checksum,
+                    line_count=len(content.split("\n")),
+                    size_bytes=len(content.encode("utf-8")),
+                    **provenance,
+                    **metadata
+                )
+                return dict(result.single()["f"])
+        
+        return self._execute_with_retry(_create)
     
     def create_class_node(
         self,
@@ -390,7 +499,7 @@ class OuroborosGraphDB:
     
     def execute_cypher(self, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
-        Execute raw Cypher query.
+        Execute raw Cypher query with retry logic.
         
         Args:
             query: Cypher query string
@@ -399,6 +508,27 @@ class OuroborosGraphDB:
         Returns:
             List of result records
         """
-        with self.driver.session() as session:
-            result = session.run(query, parameters or {})
-            return [dict(record) for record in result]
+        def _execute():
+            with self.driver.session() as session:
+                result = session.run(query, parameters or {})
+                return [dict(record) for record in result]
+        
+        return self._execute_with_retry(_execute)
+    
+    def execute_query(self, query: str, parameters: Optional[Dict[str, Any]] = None) -> List[Any]:
+        """
+        Execute query and return raw records (alias for backward compatibility).
+        
+        Args:
+            query: Cypher query string
+            parameters: Query parameters
+            
+        Returns:
+            List of result records
+        """
+        def _execute():
+            with self.driver.session() as session:
+                result = session.run(query, parameters or {})
+                return list(result)
+        
+        return self._execute_with_retry(_execute)

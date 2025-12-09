@@ -234,13 +234,54 @@ def test_structural_completeness_check(encoder):
 
 
 @pytest.mark.skipif(
+    True,  # Skip by default - requires AI21 Cloud or LM Studio running
+    reason="Requires Jamba (AI21 Cloud API key or LM Studio)"
+)
+def test_jamba_integration_cloud():
+    """Integration test with real Jamba model via AI21 Cloud."""
+    import os
+    
+    # Skip if no API key
+    if not os.getenv("AI21_API_KEY"):
+        pytest.skip("AI21_API_KEY not set")
+    
+    from src.context_encoder.config import JambaConfig, EncoderProvider
+    
+    config = ContextEncoderConfig()
+    config.provider = EncoderProvider.JAMBA_CLOUD
+    config.jamba = JambaConfig(use_cloud=True)
+    
+    encoder = ContextEncoder(config)
+    
+    sample_code = """
+    export class AuthService {
+        login(email: string, password: string) {
+            // Auth logic
+        }
+    }
+    """
+    
+    compressed = encoder.compress(
+        codebase_context=sample_code,
+        target_files=["auth.ts"],
+    )
+    
+    assert compressed.summary is not None
+    assert "AuthService" in compressed.summary or "auth" in compressed.summary.lower()
+    assert compressed.compression_ratio > 0
+
+
+@pytest.mark.skipif(
     True,  # Skip by default - requires LM Studio running
     reason="Requires Jamba-1.5-Mini running in LM Studio"
 )
-def test_jamba_integration_real():
-    """Integration test with real Jamba model (requires LM Studio)."""
+def test_jamba_integration_local():
+    """Integration test with Jamba via LM Studio local."""
+    from src.context_encoder.config import JambaConfig, EncoderProvider
+    
     config = ContextEncoderConfig()
-    config.provider = EncoderProvider.JAMBA
+    config.provider = EncoderProvider.JAMBA_LOCAL
+    config.jamba = JambaConfig(use_cloud=False)
     
     encoder = ContextEncoder(config)
     

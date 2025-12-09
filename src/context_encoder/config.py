@@ -12,42 +12,66 @@ from typing import Optional
 
 class EncoderProvider(Enum):
     """Supported context encoder providers."""
-    JAMBA = "jamba"  # AI21 Jamba-1.5-Mini (Hybrid Mamba-Transformer)
-    MOCK = "mock"    # Mock encoder for testing
+    JAMBA_CLOUD = "jamba_cloud"  # AI21 Cloud API (recommended for production)
+    JAMBA_LOCAL = "jamba_local"  # LM Studio local inference
+    MOCK = "mock"                # Mock encoder for testing
 
 
 @dataclass
 class JambaConfig:
     """Configuration for AI21 Jamba-1.5-Mini model."""
     
-    model_name: str = "ai21/jamba-1.5-mini"
+    # Model Configuration
+    model_name: str = "jamba-mini"  # AI21 model name (jamba-mini or jamba-large)
     context_window: int = 256_000  # 256k tokens
     max_output_tokens: int = 4096  # For context summary
     temperature: float = 0.3  # Low temperature for deterministic summaries
     
-    # API Configuration
-    base_url: str = "http://localhost:1234/v1"  # LM Studio default
-    api_key: Optional[str] = None
-    timeout: int = 300  # 5 minutes for large context
+    # API Configuration (Cloud vs Local)
+    use_cloud: bool = True  # True: AI21 Cloud, False: LM Studio local
     
-    # Performance
+    # AI21 Cloud Configuration
+    cloud_api_url: str = "https://api.ai21.com/studio/v1"
+    cloud_api_key: Optional[str] = None  # Set via AI21_API_KEY env var
+    
+    # LM Studio Local Configuration
+    local_base_url: str = "http://localhost:1234/v1"  # LM Studio default
+    local_api_key: Optional[str] = None  # Not needed for local
+    
+    # Common Configuration
+    timeout: int = 300  # 5 minutes for large context
     batch_size: int = 1
     use_streaming: bool = False
     
     def __post_init__(self):
-        """Validate configuration."""
+        """Validate configuration and load from environment."""
         if self.max_output_tokens > self.context_window:
             raise ValueError(
                 f"max_output_tokens ({self.max_output_tokens}) cannot exceed "
                 f"context_window ({self.context_window})"
             )
+        
+        # Load API key from environment if not set
+        if self.use_cloud and not self.cloud_api_key:
+            import os
+            self.cloud_api_key = os.getenv("AI21_API_KEY")
+    
+    @property
+    def base_url(self) -> str:
+        """Get the active base URL based on cloud/local mode."""
+        return self.cloud_api_url if self.use_cloud else self.local_base_url
+    
+    @property
+    def api_key(self) -> Optional[str]:
+        """Get the active API key based on cloud/local mode."""
+        return self.cloud_api_key if self.use_cloud else self.local_api_key
 
 
 @dataclass
 class ContextEncoderConfig:
     """Main configuration for the Context Encoder."""
     
-    provider: EncoderProvider = EncoderProvider.JAMBA
+    provider: EncoderProvider = EncoderProvider.JAMBA_CLOUD
     jamba: JambaConfig = field(default_factory=JambaConfig)
     
     # Context Compression Settings

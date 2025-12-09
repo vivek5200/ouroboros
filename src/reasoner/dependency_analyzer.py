@@ -237,14 +237,15 @@ class DependencyAnalyzer:
                 node.called_by = [c for c in record["called_by"] if c]
         
         elif symbol_type == "class":
-            # Get inheritance relationships
+            # Get inheritance relationships (full chain)
             inheritance_query = """
             MATCH (file:File {path: $file_path})-[:CONTAINS]->(cls:Class {name: $symbol_name})
-            OPTIONAL MATCH (cls)-[:INHERITS_FROM]->(parent:Class)
-            OPTIONAL MATCH (child:Class)-[:INHERITS_FROM]->(cls)
+            OPTIONAL MATCH path = (cls)-[:INHERITS_FROM*1..5]->(ancestor:Class)
+            OPTIONAL MATCH (descendant:Class)-[:INHERITS_FROM*1..5]->(cls)
             RETURN 
-                collect(DISTINCT parent.name) as inherits_from,
-                collect(DISTINCT child.name) as inherited_by
+                collect(DISTINCT ancestor.name) as inherits_from,
+                collect(DISTINCT descendant.name) as inherited_by,
+                [node in nodes(path) | node.name] as inheritance_chain
             """
             
             result = self.db.execute_query(inheritance_query, {
@@ -254,7 +255,7 @@ class DependencyAnalyzer:
             
             if result:
                 record = result[0]
-                node.inherits_from = [p for p in record["inherits_from"] if p]
+                node.inherits_from = [c for c in record["inherits_from"] if c]
                 node.inherited_by = [c for c in record["inherited_by"] if c]
         
         # Get file-level imports
@@ -275,6 +276,137 @@ class DependencyAnalyzer:
             node.imported_by = [f for f in record["imported_by"] if f]
         
         return node
+    
+    def resolve_symbol_scope(
+        self,
+        symbol_name: str,
+        context_file: str,
+        symbol_type: str = "function"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Resolve a symbol's definition using scope rules.
+        
+        Searches in order:
+        1. Same file
+        2. Direct imports
+        3. Transitive imports (depth 2)
+        
+        Args:
+            symbol_name: Symbol to resolve
+            context_file: File where symbol is referenced
+            symbol_type: Type of symbol ('function', 'class')
+        
+        Returns:
+            Dictionary with definition location or None if not found
+        """
+        logger.info(f"Resolving scope for {symbol_name} from {context_file}")
+        
+        # Search order: same file -> direct imports -> transitive imports
+        scope_query = """
+        MATCH (context:File {path: $context_file})
+        OPTIONAL MATCH (context)-[:CONTAINS]->(local)
+        WHERE (local:Class OR local:Function) AND local.name = $symbol_name
+        
+        OPTIONAL MATCH (context)-[:IMPORTS]->(direct:File)-[:CONTAINS]->(direct_symbol)
+        WHERE (direct_symbol:Class OR direct_symbol:Function) AND direct_symbol.name = $symbol_name
+        
+        OPTIONAL MATCH (context)-[:IMPORTS*2]->(transitive:File)-[:CONTAINS]->(trans_symbol)
+        WHERE (trans_symbol:Class OR trans_symbol:Function) AND trans_symbol.name = $symbol_name
+        
+        RETURN 
+            local.name as local_match,
+            CASE WHEN local IS NOT NULL THEN context.path ELSE NULL END as local_file,
+            direct_symbol.name as direct_match,
+            direct.path as direct_file,
+            trans_symbol.name as transitive_match,
+            transitive.path as transitive_file
+        LIMIT 1
+        """
+        
+        result = self.db.execute_query(scope_query, {
+            "context_file": context_file,
+            "symbol_name": symbol_name
+        })
+        
+        if not result:
+            return None
+        
+        record = result[0]
+        
+        # Return first match by scope priority
+        if record.get("local_match"):
+            return {
+                "symbol": symbol_name,
+                "file": record["local_file"],
+                "scope": "local",
+                "distance": 0
+            }
+        elif record.get("direct_match"):
+            return {
+                "symbol": symbol_name,
+                "file": record["direct_file"],
+                "scope": "direct_import",
+                "distance": 1
+            }
+        elif record.get("transitive_match"):
+            return {
+                "symbol": symbol_name,
+                "file": record["transitive_file"],
+                "scope": "transitive_import",
+                "distance": 2
+            }
+        
+        return None
+    
+    def get_inheritance_chain(
+        self,
+        class_name: str,
+        direction: str = "ancestors"
+    ) -> List[Dict[str, Any]]:
+        """
+        Get full inheritance chain for a class.
+        
+        Args:
+            class_name: Starting class name
+            direction: 'ancestors' for parents, 'descendants' for children
+        
+        Returns:
+            List of classes in inheritance chain with metadata
+        """
+        if direction == "ancestors":
+            query = """
+            MATCH path = (child:Class {name: $class_name})-[:INHERITS_FROM*1..10]->(ancestor:Class)
+            MATCH (ancestor)<-[:CONTAINS]-(f:File)
+            RETURN 
+                ancestor.name as class_name,
+                f.path as file_path,
+                length(path) as distance,
+                [node in nodes(path) | node.name] as chain
+            ORDER BY distance
+            """
+        else:  # descendants
+            query = """
+            MATCH path = (descendant:Class)-[:INHERITS_FROM*1..10]->(parent:Class {name: $class_name})
+            MATCH (descendant)<-[:CONTAINS]-(f:File)
+            RETURN 
+                descendant.name as class_name,
+                f.path as file_path,
+                length(path) as distance,
+                [node in nodes(path) | node.name] as chain
+            ORDER BY distance
+            """
+        
+        result = self.db.execute_query(query, {"class_name": class_name})
+        
+        return [
+            {
+                "class": record["class_name"],
+                "file": record["file_path"],
+                "distance": record["distance"],
+                "chain": record["chain"]
+            }
+            for record in result
+        ]
     
     def find_transitive_dependencies(
         self,

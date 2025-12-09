@@ -9,9 +9,10 @@ import hashlib
 import json
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 
 from openai import OpenAI
+import ai21
 
 from .config import ContextEncoderConfig, EncoderProvider, get_config
 from .validator import ContextIntegrityValidator
@@ -70,19 +71,32 @@ class ContextEncoder:
         """Initialize the context encoder."""
         self.config = config or get_config()
         self.validator = ContextIntegrityValidator(self.config)
-        self.client: Optional[OpenAI] = None
+        self.client: Optional[Union[OpenAI, ai21.AI21Client]] = None
         
         # Initialize client based on provider
-        if self.config.provider == EncoderProvider.JAMBA:
+        if self.config.provider in (EncoderProvider.JAMBA_CLOUD, EncoderProvider.JAMBA_LOCAL):
             self._init_jamba_client()
     
     def _init_jamba_client(self) -> None:
-        """Initialize Jamba client (via LM Studio API)."""
+        """Initialize Jamba client (AI21 Cloud or LM Studio local)."""
         try:
-            self.client = OpenAI(
-                base_url=self.config.jamba.base_url,
-                api_key=self.config.jamba.api_key or "not-needed",
-            )
+            jamba_config = self.config.jamba
+            
+            if jamba_config.use_cloud:
+                # AI21 Cloud API - use native AI21 SDK
+                if not jamba_config.cloud_api_key:
+                    raise ValueError(
+                        "AI21_API_KEY environment variable not set. "
+                        "Get your API key from: https://studio.ai21.com/account/api-key"
+                    )
+                
+                self.client = ai21.AI21Client(api_key=jamba_config.cloud_api_key)
+            else:
+                # LM Studio local - use OpenAI-compatible endpoint
+                self.client = OpenAI(
+                    base_url=jamba_config.local_base_url,
+                    api_key="not-needed",  # Local doesn't need API key
+                )
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Jamba client: {e}")
     
@@ -108,8 +122,8 @@ class ContextEncoder:
         # Build compression prompt
         prompt = self._build_compression_prompt(codebase_context, target_files)
         
-        # Call Jamba
-        if self.config.provider == EncoderProvider.JAMBA:
+        # Call Jamba (cloud or local)
+        if self.config.provider in (EncoderProvider.JAMBA_CLOUD, EncoderProvider.JAMBA_LOCAL):
             summary, tokens_in, tokens_out = self._call_jamba(prompt)
         else:  # Mock
             summary, tokens_in, tokens_out = self._mock_compression(prompt)
@@ -214,16 +228,33 @@ Output pseudo-code headers (TypeScript/Python style) with:
             raise RuntimeError("Jamba client not initialized")
         
         try:
-            response = self.client.chat.completions.create(
-                model=self.config.jamba.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=self.config.jamba.max_output_tokens,
-                temperature=self.config.jamba.temperature,
-            )
-            
-            summary = response.choices[0].message.content
-            tokens_in = response.usage.prompt_tokens
-            tokens_out = response.usage.completion_tokens
+            if self.config.jamba.use_cloud:
+                # AI21 Cloud API - use native SDK
+                from ai21.models.chat import ChatMessage
+                
+                response = self.client.chat.completions.create(
+                    model=self.config.jamba.model_name,
+                    messages=[ChatMessage(role="user", content=prompt)],
+                    max_tokens=self.config.jamba.max_output_tokens,
+                    temperature=self.config.jamba.temperature,
+                )
+                
+                summary = response.choices[0].message.content
+                # AI21 doesn't return token counts in the same way, estimate them
+                tokens_in = len(prompt) // 4  # Rough estimate: 4 chars per token
+                tokens_out = len(summary) // 4
+            else:
+                # LM Studio local - use OpenAI-compatible API
+                response = self.client.chat.completions.create(
+                    model=self.config.jamba.model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=self.config.jamba.max_output_tokens,
+                    temperature=self.config.jamba.temperature,
+                )
+                
+                summary = response.choices[0].message.content
+                tokens_in = response.usage.prompt_tokens
+                tokens_out = response.usage.completion_tokens
             
             return summary, tokens_in, tokens_out
         

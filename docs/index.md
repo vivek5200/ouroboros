@@ -21,8 +21,9 @@ Ouroboros is an autonomous agent designed to self-correct and refactor codebases
 ### Key Features
 
 * **⚡ Automated Refactoring**: Intelligent code analysis.
-* **🧠 LLM Integration**: Powered by LM Studio / Local LLMs.
+* **🧠 LLM Integration**: 6 providers + AI21 Jamba (256k context).
 * **🔄 Self-Healing**: Detects errors and proposes fixes iteratively.
+* **🚀 Deep Context**: AI21 Cloud integration for massive codebases.
 
 ### Documentation Status
 
@@ -30,6 +31,7 @@ Ouroboros is an autonomous agent designed to self-correct and refactor codebases
 |:-------|:-------|:------------|
 | **Phase 1** | ✅ Complete | Code parsing and graph database construction. |
 | **Phase 2** | ✅ Complete | LLM-powered refactor plan generation with 6 providers. |
+| **Phase 3** | ✅ Complete | Jamba context encoder with 256k token window (AI21 Cloud). |
 
 ---
 

@@ -30,6 +30,11 @@ from .diffusion_model import (
     NoiseScheduler,
     DiffusionSample,
 )
+from .builder import (
+    Builder,
+    RefactorPlan,
+    GeneratedPatch,
+)
 
 __all__ = [
     # Masking
@@ -49,6 +54,10 @@ __all__ = [
     "DiscreteDiffusionModel",
     "NoiseScheduler",
     "DiffusionSample",
+    # Builder Orchestrator
+    "Builder",
+    "RefactorPlan",
+    "GeneratedPatch",
 ]
 
 __version__ = "0.1.0"

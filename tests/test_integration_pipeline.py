@@ -316,20 +316,22 @@ def test_apply_patch_invalid(mock_generator):
 
 def test_context_manager(temp_workspace):
     """Test generator as context manager."""
-    with patch('src.ouroboros_pipeline.OuroborosGraphDB') as MockGraphDB:
-        mock_db = Mock()
-        MockGraphDB.return_value = mock_db
+    # In mock mode, the generator creates its own mocks internally
+    with OuroborosCodeGenerator(
+        neo4j_uri="bolt://localhost:7687",
+        neo4j_user="neo4j",
+        neo4j_password="password",
+        use_mock=True,
+        skip_db_init=True,  # Skip DB init in test mode
+    ) as generator:
+        assert generator is not None
+        assert generator.graph_db is not None
         
-        with OuroborosCodeGenerator(
-            neo4j_uri="bolt://localhost:7687",
-            neo4j_user="neo4j",
-            neo4j_password="password",
-            use_mock=True
-        ) as generator:
-            assert generator is not None
-        
-        # Check close was called
-        mock_db.close.assert_called_once()
+        # Store the mock for later verification
+        graph_db_mock = generator.graph_db
+    
+    # Check close was called
+    graph_db_mock.close.assert_called_once()
 
 
 def test_generate_no_target_files(mock_generator):

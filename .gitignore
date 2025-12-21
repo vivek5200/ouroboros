@@ -9,6 +9,7 @@ venv_old/
 env/
 ENV/
 .venv
+*.pyc
 
 # Neo4j
 neo4j_data/
@@ -25,12 +26,26 @@ neo4j_logs/
 
 # Logs
 *.log
+ouroboros_generation.log
 
-# Test artifacts
+# Test artifacts and temporary files
 tests/synthetic_benchmarks/output/
-artifact_metadata.json
+artifacts/*.json
+artifact_metadata*.json
+test_*.py
+*.backup
+temp_*.py
 
-# Interim reports (consolidated into PHASE1_COMPLETE.md)
+# Interim reports (consolidated)
 TASK1_VALIDATION.md
 TASK2_REPORT.md
 TASK3_SUMMARY.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/

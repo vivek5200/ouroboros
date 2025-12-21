@@ -59,6 +59,9 @@ from src.diffusion.config import (
     MOCK_CONFIG,
 )
 
+# Phase 5: Safety and Provenance
+from src.utils.provenance_logger import ProvenanceLogger
+
 logger = logging.getLogger(__name__)
 
 
@@ -269,6 +272,16 @@ class OuroborosCodeGenerator:
         start_time = datetime.now()
         logger.info(f"Starting code generation: {issue_description}")
         
+        # Initialize provenance logger
+        provenance_logger = ProvenanceLogger(
+            issue_description=issue_description,
+            config={
+                "diffusion_config": config,
+                "context_limit": context_limit,
+                "max_patches": max_patches,
+            }
+        )
+        
         try:
             # Convert file paths
             target_paths = [Path(f) for f in target_files] if target_files else []
@@ -288,7 +301,18 @@ class OuroborosCodeGenerator:
             
             # Step 1: Analyze and plan (Phase 2)
             logger.info("Phase 2: Analyzing and creating refactor plans")
+            plan_start = datetime.now()
             refactor_plans = self._create_refactor_plans(request)
+            plan_duration = (datetime.now() - plan_start).total_seconds() * 1000
+            
+            # Log Phase 2 model usage (Reasoner)
+            provenance_logger.log_model_usage(
+                phase="reasoner",
+                model_name="dependency-analyzer",
+                purpose="analyzing dependencies and creating refactor plans",
+                tokens_used=0,  # Internal analysis, no API calls
+                duration_ms=plan_duration
+            )
             
             if not refactor_plans:
                 logger.warning("No refactor plans generated")
@@ -314,11 +338,50 @@ class OuroborosCodeGenerator:
             
             # Step 2: Compress context (Phase 3)
             logger.info("Phase 3: Compressing context with Jamba")
+            compress_start = datetime.now()
             compressed_contexts = self._compress_contexts(refactor_plans, context_limit)
+            compress_duration = (datetime.now() - compress_start).total_seconds() * 1000
+            
+            # Log Phase 3 model usage (Compressor)
+            if not self.use_mock and self.context_encoder:
+                estimated_tokens = context_limit * len(refactor_plans)
+                provenance_logger.log_model_usage(
+                    phase="compressor",
+                    model_name="jamba-1.5-mini",
+                    purpose="compressing context to fit within token limit",
+                    tokens_used=estimated_tokens,
+                    duration_ms=compress_duration
+                )
             
             # Step 3: Generate patches (Phase 4)
             logger.info("Phase 4: Generating code with diffusion")
+            gen_start = datetime.now()
             patches = self._generate_patches(refactor_plans)
+            gen_duration = (datetime.now() - gen_start).total_seconds() * 1000
+            
+            # Log Phase 4 model usage (Generator)
+            for patch in patches:
+                if patch.diffusion_sample:
+                    provenance_logger.log_model_usage(
+                        phase="generator",
+                        model_name=f"diffusion-{self.diffusion_config.backbone.value}",
+                        purpose="generating refactored code",
+                        tokens_used=0,  # Diffusion doesn't use tokens in traditional sense
+                        duration_ms=patch.metadata.get("generation_time_ms", 0),
+                        num_steps=patch.metadata.get("num_steps", 0),
+                        cfg_scale=patch.metadata.get("cfg_scale", 0),
+                        retry_count=patch.metadata.get("retry_count", 0)
+                    )
+                    
+                    # Log safety check for this patch
+                    provenance_logger.log_safety_check(
+                        check_type="syntax_validation",
+                        passed=patch.is_valid_syntax,
+                        details=(
+                            "Syntax validation passed" if patch.is_valid_syntax
+                            else f"Syntax errors: {'; '.join(patch.validation_errors[:3])}"
+                        )
+                    )
             
             # Create result
             duration = (datetime.now() - start_time).total_seconds()
@@ -342,11 +405,39 @@ class OuroborosCodeGenerator:
                 f"({result.metadata['num_applicable']} applicable)"
             )
             
+            # Finalize provenance logging
+            provenance_logger.finalize(success=True)
+            
+            # Save provenance metadata
+            artifacts_dir = Path("./artifacts")
+            artifacts_dir.mkdir(exist_ok=True)
+            provenance_path = artifacts_dir / f"artifact_metadata_{provenance_logger.metadata.run_id}.json"
+            provenance_logger.save(provenance_path)
+            logger.info(f"Saved provenance metadata to {provenance_path}")
+            
+            # Add provenance path to result metadata
+            result.metadata["provenance_file"] = str(provenance_path)
+            
             return result
         
         except Exception as e:
             logger.error(f"Generation failed: {e}", exc_info=True)
             duration = (datetime.now() - start_time).total_seconds()
+            
+            # Log error to provenance
+            provenance_logger.log_error(str(e))
+            provenance_logger.finalize(success=False)
+            
+            # Save provenance even on failure (for debugging)
+            try:
+                artifacts_dir = Path("./artifacts")
+                artifacts_dir.mkdir(exist_ok=True)
+                provenance_path = artifacts_dir / f"artifact_metadata_{provenance_logger.metadata.run_id}_failed.json"
+                provenance_logger.save(provenance_path)
+                logger.info(f"Saved failure provenance metadata to {provenance_path}")
+            except Exception as save_error:
+                logger.error(f"Failed to save provenance metadata: {save_error}")
+            
             return GenerationResult(
                 patches=[],
                 refactor_plans=[],
@@ -657,7 +748,8 @@ class OuroborosCodeGenerator:
         self,
         patch: GeneratedPatch,
         backup: bool = True,
-        dry_run: bool = False
+        dry_run: bool = False,
+        provenance_logger: Optional[ProvenanceLogger] = None
     ) -> bool:
         """
         Apply a generated patch to the filesystem.
@@ -666,6 +758,7 @@ class OuroborosCodeGenerator:
             patch: Patch to apply
             backup: Create backup before applying
             dry_run: Don't actually modify files
+            provenance_logger: Optional provenance logger to track modifications
         
         Returns:
             True if successful
@@ -684,6 +777,7 @@ class OuroborosCodeGenerator:
         
         try:
             # Create backup
+            backup_path = None
             if backup:
                 backup_path = Path(str(patch.file_path) + ".backup")
                 backup_path.write_text(patch.original_code)
@@ -692,6 +786,21 @@ class OuroborosCodeGenerator:
             # Write new code
             patch.file_path.write_text(patch.generated_code, encoding="utf-8")
             logger.info(f"Applied patch to {patch.file_path}")
+            
+            # Log to provenance if logger provided
+            if provenance_logger:
+                # Count lines added/removed from unified diff
+                lines_added = len([l for l in patch.unified_diff.split('\n') if l.startswith('+')])
+                lines_removed = len([l for l in patch.unified_diff.split('\n') if l.startswith('-')])
+                
+                provenance_logger.log_file_modification(
+                    file_path=str(patch.file_path),
+                    original_content=patch.original_code,
+                    modified_content=patch.generated_code,
+                    lines_added=lines_added,
+                    lines_removed=lines_removed,
+                    backup_path=str(backup_path) if backup_path else None
+                )
             
             return True
         

@@ -25,10 +25,15 @@ from pathlib import Path
 import difflib
 import time
 from datetime import datetime
+import logging
 
 from .config import DiffusionConfig, BALANCED_CONFIG
 from .diffusion_model import DiscreteDiffusionModel, DiffusionSample
 from .masking import ASTMasker, MaskedSpan
+from ..utils.syntax_validator import SyntaxValidator, ValidationResult
+from ..utils.provenance_logger import ProvenanceLogger
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -180,7 +185,9 @@ class Builder:
         self,
         config: DiffusionConfig = BALANCED_CONFIG,
         model: Optional[DiscreteDiffusionModel] = None,
-        masker: Optional[ASTMasker] = None
+        masker: Optional[ASTMasker] = None,
+        enable_safety_gate: bool = True,
+        max_retry_attempts: int = 3
     ):
         """
         Initialize Builder.
@@ -189,10 +196,20 @@ class Builder:
             config: Diffusion configuration (defaults to BALANCED_CONFIG)
             model: Pre-initialized diffusion model (optional)
             masker: Pre-initialized AST masker (optional)
+            enable_safety_gate: Enable syntax validation before applying changes
+            max_retry_attempts: Maximum retry attempts for self-healing
         """
         self.config = config
         self.model = model or DiscreteDiffusionModel(config)
         self.masker = masker or ASTMasker()
+        self.enable_safety_gate = enable_safety_gate
+        self.max_retry_attempts = max_retry_attempts
+        
+        # Initialize syntax validator for safety gate
+        if enable_safety_gate:
+            self.validator = SyntaxValidator()
+        else:
+            self.validator = None
     
     def generate_patch(
         self,
@@ -249,21 +266,80 @@ class Builder:
                 f"Could not find any of {plan.edit_targets} in {plan.file_path}"
             )
         
-        # Generate new code
-        if use_fallback:
-            diffusion_sample = self.model.generate_with_fallback(
-                masked_code=masked_code,
-                masked_spans=masked_spans,
-                condition=plan.condition,
-                language=plan.language
-            )
-        else:
-            diffusion_sample = self.model.generate(
-                masked_code=masked_code,
-                masked_spans=masked_spans,
-                condition=plan.condition,
-                language=plan.language
-            )
+        # Generate new code with safety gate and retry loop
+        retry_count = 0
+        diffusion_sample = None
+        last_validation_result = None
+        
+        while retry_count <= max_retries:
+            # Generate code
+            if use_fallback:
+                diffusion_sample = self.model.generate_with_fallback(
+                    masked_code=masked_code,
+                    masked_spans=masked_spans,
+                    condition=plan.condition,
+                    language=plan.language
+                )
+            else:
+                diffusion_sample = self.model.generate(
+                    masked_code=masked_code,
+                    masked_spans=masked_spans,
+                    condition=plan.condition,
+                    language=plan.language
+                )
+            
+            # Safety Gate: Validate syntax before accepting
+            if self.enable_safety_gate and self.validator:
+                validation_result = self.validator.validate(
+                    diffusion_sample.generated_code,
+                    language=plan.language
+                )
+                
+                last_validation_result = validation_result
+                
+                if validation_result.is_valid:
+                    # Valid syntax - accept and break
+                    logger.info(f"✓ Syntax validation passed on attempt {retry_count + 1}")
+                    break
+                else:
+                    # Invalid syntax - retry if attempts remain
+                    retry_count += 1
+                    logger.warning(
+                        f"✗ Syntax validation failed on attempt {retry_count}. "
+                        f"Errors: {validation_result.error_summary}"
+                    )
+                    
+                    if retry_count <= max_retries:
+                        logger.info(f"Self-healing: Retrying with enhanced condition...")
+                        # Enhance condition with error feedback for retry
+                        enhanced_condition = (
+                            f"{plan.condition}\n\n"
+                            f"IMPORTANT: Previous attempt had syntax errors. "
+                            f"Fix these issues: {validation_result.error_summary}"
+                        )
+                        plan.condition = enhanced_condition
+                    else:
+                        logger.error(
+                            f"✗ Max retries ({max_retries}) exceeded. "
+                            f"Final error: {validation_result.error_summary}"
+                        )
+            else:
+                # Safety gate disabled - accept immediately
+                break
+        
+        # Update diffusion sample with validation info
+        if last_validation_result and self.enable_safety_gate:
+            diffusion_sample.is_valid_syntax = last_validation_result.is_valid
+            diffusion_sample.validation_errors = [
+                f"Line {e.line}: {e.message}" for e in last_validation_result.errors
+            ]
+            diffusion_sample.metadata["validation_result"] = {
+                "parse_time_ms": last_validation_result.parse_time_ms,
+                "has_error_nodes": last_validation_result.has_error_nodes,
+                "num_errors": len(last_validation_result.errors)
+            }
+        
+        diffusion_sample.metadata["retry_count"] = retry_count
         
         # Create unified diff
         unified_diff = self._create_unified_diff(

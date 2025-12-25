@@ -57,7 +57,7 @@ class OuroborosGraphDB:
         """
         self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self.user = user or os.getenv("NEO4J_USER", "neo4j")
-        self.password = password or os.getenv("NEO4J_PASSWORD", "ouroboros123")
+        self.password = password or os.getenv("NEO4J_PASSWORD", "password")
         self.model_name = model_name or os.getenv("MODEL_NAME", "ouroboros-librarian")
         self.model_version = model_version or os.getenv("MODEL_VERSION", "1.0.0")
         

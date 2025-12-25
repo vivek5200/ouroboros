@@ -21,3 +21,8 @@ ai21>=2.17.0           # Jamba 1.5 Mini
 openai>=1.54.0         # GPT-4 (alternative)
 google-generativeai>=0.8.0  # Gemini 1.5 Pro (2M context)
 tiktoken>=0.8.0        # Token counting
+
+# Semantic Analysis (Safety Gate Enhancement)
+pyright>=1.1.350
+mypy>=1.8.0
+

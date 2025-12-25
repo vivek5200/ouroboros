@@ -61,6 +61,19 @@ class DependencyAnalyzer:
         self.db = db or OuroborosGraphDB()
         self.retriever = GraphRetriever(self.db)
     
+    def get_dependencies(self, node_id: str) -> List[str]:
+        """
+        Get dependencies for a node.
+        
+        Args:
+            node_id: Node identifier
+        
+        Returns:
+            List of dependency identifiers
+        """
+        return []  # Simple stub for now
+
+    
     def analyze_function_rename(
         self,
         file_path: str,

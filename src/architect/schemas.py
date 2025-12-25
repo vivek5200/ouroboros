@@ -148,6 +148,11 @@ class RefactorPlan(BaseModel):
         description="Estimated number of files that will be modified"
     )
     
+    priority: int = Field(
+        1,
+        description="Priority of this refactor (higher is more important)"
+    )
+    
     # Rollback information
     rollback_plan: Optional[Dict[str, Any]] = Field(
         None,

@@ -19,6 +19,7 @@ import logging
 import time
 import numpy as np
 import torch
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
@@ -161,7 +162,11 @@ class DiscreteDiffusionModel:
         #     device_map=self.config.device
         # )
         
-        logger.warning("Real backbone models not yet implemented - using MOCK")
+        import os
+        if os.getenv("COLAB_API_URL"):
+            logger.info(f"Using Real Backbone via Colab: {os.getenv('COLAB_API_URL')}")
+        else:
+            logger.warning("Real backbone models not yet implemented - using MOCK")
         return None
     
     def generate(
@@ -288,12 +293,12 @@ class DiscreteDiffusionModel:
         
         predictions = []
         
+        import os
+        colab_url = os.getenv("COLAB_API_URL")
+        
         for i, span in enumerate(masked_spans):
-            # Mock prediction for now
-            if self.backbone is None:  # Mock mode
-                predicted_text = self._mock_predict(span, condition)
-            else:
-                # TODO: Real denoising with Qwen2.5-Coder
+            # Use Colab bridge or real backbone if available
+            if colab_url or self.backbone is not None:
                 predicted_text = self._denoise_span(
                     noisy_tokens[i],
                     timesteps,
@@ -301,6 +306,9 @@ class DiscreteDiffusionModel:
                     masked_code,
                     condition,
                 )
+            else:
+                # Mock mode only if no mechanism available
+                predicted_text = self._mock_predict(span, condition)
             
             predictions.append(predicted_text)
         
@@ -331,21 +339,74 @@ class DiscreteDiffusionModel:
         condition: Optional[str],
     ) -> str:
         """
-        Denoise a single span using backbone model.
-        
-        Applies CFG (classifier-free guidance) at each step.
+        Denoise a single span using backbone model or Colab Bridge.
         """
-        # TODO: Implement real denoising with Qwen2.5-Coder
-        # For each timestep t in reverse:
-        #   1. Construct prompt with masked code + condition
-        #   2. Get conditional prediction (with condition)
-        #   3. Get unconditional prediction (without condition)
-        #   4. Apply CFG: pred = uncond + scale * (cond - uncond)
-        #   5. Sample next timestep
+        import os
+        import requests
         
-        # Placeholder: return original or template
+        colab_url = os.getenv("COLAB_API_URL")
+        
+        if colab_url:
+            try:
+                # Construct prompt for the model
+                prompt = (
+                    f"# Context: {condition}\n"
+                    f"# Original Code (Masked):\n{masked_code}\n\n"
+                    f"# Goal: Fill in the mask for {span.node_type}\n"
+                    f"# Code:\n"
+                )
+                
+                response = requests.post(
+                    f"{colab_url}/generate",
+                    json={
+                        "prompt": prompt,
+                        "max_tokens": 128,
+                        "temperature": 0.2
+                    },
+                    timeout=120
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    gen_text = data.get("generated_text", span.original_text)
+                    
+                    # Clean markdown code blocks
+                    gen_text = self._clean_output(gen_text)
+                    
+                    logger.info(f"LLaDA Raw Output: {gen_text}")
+                    return gen_text
+                else:
+                    logger.error(f"Colab Bridge error: {response.text}")
+            except Exception as e:
+                logger.error(f"Failed to call Colab Bridge: {e}")
+                
+        # Fallback to simple logic if no bridge or error
         return span.original_text
-    
+
+    def _clean_output(self, text: str) -> str:
+        """Strip markdown code fences from model output."""
+        # Regex to find content between ```python ... ``` or ``` ... ```
+        match = re.search(r"```(?:python)?\s*(.*?)```", text, re.DOTALL)
+        if match:
+             return match.group(1).strip()
+        
+        # Fallback: existing logic for non-fenced but potentially chatty output?
+        # If no fences, just return text, but maybe strip leading "Here is the code:" etc?
+        # For now, just strip
+        text = text.strip()
+        if text.startswith("```"):
+            # Should have been caught by regex, but handle unclosed fence start
+            if text.startswith("```python"):
+                text = text[9:]
+            else:
+                text = text[3:]
+        
+        # If ends with ``` but wasn't caught by regex (unlikely given DOTALL), clean it
+        if text.endswith("```"):
+            text = text[:-3]
+            
+        return text.strip()
+
     def generate_with_fallback(
         self,
         masked_code: str,
@@ -356,19 +417,6 @@ class DiscreteDiffusionModel:
     ) -> DiffusionSample:
         """
         Generate code with autoregressive fallback on failure.
-        
-        If diffusion fails validation, falls back to Qwen small
-        autoregressive generation.
-        
-        Args:
-            masked_code: Code with masks
-            masked_spans: Span metadata
-            condition: Conditioning context
-            language: Programming language
-            fallback_model: Autoregressive model to use (e.g., "qwen2.5-coder-1.5b")
-        
-        Returns:
-            DiffusionSample (may be from fallback if diffusion failed)
         """
         attempts = 0
         max_attempts = self.config.max_validation_attempts
@@ -405,21 +453,50 @@ class DiscreteDiffusionModel:
         model_name: str,
     ) -> DiffusionSample:
         """
-        Fallback to autoregressive generation.
-        
-        Uses standard left-to-right generation instead of diffusion.
+        Fallback to autoregressive generation via Colab Bridge.
         """
         start_time = time.time()
+        import os
+        import requests
         
         logger.info(f"Using autoregressive fallback: {model_name}")
         
-        # TODO: Implement real autoregressive generation
-        # from transformers import pipeline
-        # generator = pipeline("text-generation", model=model_name)
-        # predictions = generator(prompt, max_length=128)
+        colab_url = os.getenv("COLAB_API_URL")
+        predictions = []
         
-        # Mock fallback: use original text
-        predictions = [span.original_text for span in masked_spans]
+        if colab_url:
+            for span in masked_spans:
+                try:
+                    # Specific prompt for autoregressive fill
+                    prompt = (
+                        f"You are an expert coder. Complete the code.\n"
+                        f"# Context: {condition}\n"
+                        f"# Code:\n{masked_code.replace('[MASK]', '???')}\n\n"
+                        f"Fill in the ??? corresponding to '{span.node_type}':\n"
+                    )
+                    
+                    response = requests.post(
+                        f"{colab_url}/generate",
+                        json={
+                            "prompt": prompt,
+                            "max_tokens": 256,
+                            "temperature": 0.1
+                        },
+                        timeout=30
+                    )
+                    
+                    if response.status_code == 200:
+                        predictions.append(response.json().get("generated_text", "").strip())
+                    else:
+                        predictions.append(span.original_text)
+                        
+                except Exception as e:
+                    logger.error(f"Colab fallback failed: {e}")
+                    predictions.append(span.original_text)
+        else:
+            # Mock fallback
+            predictions = [span.original_text for span in masked_spans]
+            
         generated_code = self.masker.unmask(masked_code, masked_spans, predictions)
         
         is_valid, errors = self.masker.validate_syntax(generated_code)
@@ -435,7 +512,7 @@ class DiscreteDiffusionModel:
             generation_time_ms=generation_time,
             metadata={
                 "language": language,
-                "backbone": "autoregressive_fallback",
+                "backbone": "colab_bridge_fallback" if colab_url else "mock_fallback",
                 "fallback_model": model_name,
                 "timestamp": datetime.utcnow().isoformat(),
             }

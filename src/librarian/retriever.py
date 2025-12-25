@@ -290,6 +290,56 @@ class GraphRetriever:
             """)
             
             return [dict(record) for record in result]
+    
+    def get_nodes_by_property(self, property_name: str, property_value: Any) -> List[Dict[str, Any]]:
+        """
+        Get nodes by a specific property value.
+        
+        Args:
+            property_name: Name of the property to filter by
+            property_value: Value to match
+        
+        Returns:
+            List of matching nodes
+        """
+        with self.db.driver.session() as session:
+            result = session.run(f"""
+                MATCH (n)
+                WHERE n.{property_name} = $value
+                RETURN n
+            """, value=property_value)
+            
+            return [dict(record["n"]) for record in result]
+    
+    def get_related_nodes(self, node_id: str, relationship_type: Optional[str] = None, max_depth: int = 1) -> List[Dict[str, Any]]:
+        """
+        Get nodes related to a given node.
+        
+        Args:
+            node_id: ID or path of the starting node
+            relationship_type: Optional relationship type to filter by
+            max_depth: Maximum depth to traverse
+        
+        Returns:
+            List of related nodes
+        """
+        with self.db.driver.session() as session:
+            if relationship_type:
+                result = session.run(f"""
+                    MATCH (start)-[r:{relationship_type}*1..{max_depth}]-(related)
+                    WHERE start.path = $node_id OR id(start) = $node_id
+                    RETURN DISTINCT related
+                """, node_id=node_id)
+            else:
+                result = session.run(f"""
+                    MATCH (start)-[*1..{max_depth}]-(related)
+                    WHERE start.path = $node_id OR id(start) = $node_id
+                    RETURN DISTINCT related
+                """, node_id=node_id)
+            
+            return [dict(record["related"]) for record in result]
+
+
 
 
 def demo_retrieval_api():

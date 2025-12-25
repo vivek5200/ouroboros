@@ -45,6 +45,7 @@ from src.librarian.retriever import GraphRetriever
 
 # Phase 2: Reasoner
 from src.reasoner.dependency_analyzer import DependencyAnalyzer
+from src.reasoner.reasoner import Reasoner
 
 # Phase 3: Context Encoder (Jamba)
 from src.context_encoder import ContextEncoder, ContextEncoderConfig
@@ -210,11 +211,26 @@ class OuroborosCodeGenerator:
         logger.info("Initializing Phase 2: Reasoner")
         if skip_db_init or use_mock:
             self.dependency_analyzer = Mock()
+            self.reasoner = Mock()
             # Mock dependency analyzer methods to return empty list
             self.dependency_analyzer.get_dependencies = Mock(return_value=[])
             self.dependency_analyzer.find_dependencies = Mock(return_value=[])
+            
+            # Mock reasoner
+            from src.architect.schemas import RefactorPlan
+            mock_plan = RefactorPlan(
+                file_path="mock.py", 
+                edit_targets=["mock_func"], 
+                intent="mock intent",
+                condition="mock condition",
+                context={},
+                language="python",
+                priority=1
+            )
+            self.reasoner.generate_refactor_plan = Mock(return_value=mock_plan)
         else:
             self.dependency_analyzer = DependencyAnalyzer(self.graph_db)
+            self.reasoner = Reasoner()
         
         # Phase 3: Initialize Context Encoder (Jamba)
         logger.info("Initializing Phase 3: Context Encoder (Jamba)")
@@ -465,84 +481,84 @@ class OuroborosCodeGenerator:
         """
         plans = []
         
+        # Auto-Index: Ensure target files exist in graph
+        if request.target_files and not self.use_mock:
+            for file_path in request.target_files:
+                print(f"DEBUG: Checking index for {file_path}")
+                self._ensure_file_indexed(str(file_path))
+
         # If specific files provided, analyze those
         if request.target_files:
             for file_path in request.target_files:
-                # Retrieve file from graph
-                file_nodes = self.retriever.get_nodes_by_property(
-                    "File",
-                    "path",
-                    str(file_path)
-                )
-                
-                if not file_nodes:
-                    logger.warning(f"File not found in graph: {file_path}")
-                    continue
-                
-                file_node = file_nodes[0]
-                
-                # Get functions in file
-                functions = self.retriever.get_related_nodes(
-                    file_node["id"],
-                    relationship_type="CONTAINS",
-                    target_label="Function"
-                )
-                
-                # If specific functions requested, filter
+                # If specific functions provided, generate plan for each
                 if request.target_functions:
-                    functions = [
-                        f for f in functions
-                        if f.get("name") in request.target_functions
-                    ]
+                    for func_name in request.target_functions:
+                        try:
+                            print(f"DEBUG: calling reasoner for {file_path}:{func_name}")
+                            schema_plan = self.reasoner.generate_refactor_plan(
+                                task_description=request.issue_description,
+                                target_file=str(file_path),
+                                target_symbol=func_name
+                            )
+                            print(f"DEBUG: Got plan with {len(schema_plan.primary_changes)} changes")
+                            
+                            # Adapter: Convert Schema Plan to Builder Plan
+                            if schema_plan.primary_changes:
+                                target_file_str = schema_plan.primary_changes[0].target_file
+                                # Fallback: If LLM hallucinates filename or uses generic placeholder
+                                if "unknown" in target_file_str or "<" in target_file_str:
+                                    target_file_str = str(file_path)
+                                # Force strict usage of the iterator's file path if available
+                                if str(file_path) and target_file_str != str(file_path):
+                                     logger.warning(f"Plan target {target_file_str} mismatch, forcing {file_path}")
+                                     target_file_str = str(file_path)
+
+                                targets = [c.symbol_name for c in schema_plan.primary_changes if c.symbol_name]
+                                if not targets: targets = [func_name]
+                                
+                                builder_plan = RefactorPlan(
+                                    file_path=Path(target_file_str),
+                                    edit_targets=targets,
+                                    intent=schema_plan.description,
+                                    condition=f"Refactor to {schema_plan.description}",
+                                    context={},
+                                    language="python", 
+                                    priority=getattr(schema_plan, 'priority', 1)
+                                )
+                                plans.append(builder_plan)
+                        except Exception as e:
+                            logger.error(f"Failed to generate plan for {file_path}:{func_name}: {e}")
                 
-                # Create plans for each function
-                for func in functions:
-                    # Analyze dependencies
-                    dependencies = self.dependency_analyzer.get_dependencies(
-                        func["id"]
-                    )
-                    
-                    # Calculate simple impact based on dependencies
-                    impact_score = min(1.0, len(dependencies) / 20.0)  # More deps = higher impact
-                    impact = {
-                        "impact_score": impact_score,
-                        "num_dependencies": len(dependencies)
-                    }
-                    
-                    # Determine language
-                    language = self._determine_language(file_path)
-                    
-                    # Create refactor plan
-                    plan = RefactorPlan(
-                        file_path=file_path,
-                        edit_targets=[func.get("name", "unknown")],
-                        intent=request.issue_description,
-                        condition=self._create_condition(
-                            request.issue_description,
-                            func,
-                            dependencies,
-                            impact
-                        ),
-                        context={
-                            "dependencies": dependencies[:10],  # Limit size
-                            "impact_score": impact.get("impact_score", 0.5),
-                            "file_node_id": file_node["id"],
-                            "func_node_id": func["id"],
-                        },
-                        language=language,
-                        priority=self._calculate_priority(func, impact, request.priority)
-                    )
-                    
-                    plans.append(plan)
+                # Otherwise generate plan for the whole file
+                else:
+                    try:
+                        schema_plan = self.reasoner.generate_refactor_plan(
+                            task_description=request.issue_description,
+                            target_file=str(file_path)
+                        )
+                        
+                        # Adapter: Convert Schema Plan to Builder Plan
+                        if schema_plan.primary_changes:
+                            target_file_str = schema_plan.primary_changes[0].target_file
+                            targets = [c.symbol_name for c in schema_plan.primary_changes if c.symbol_name]
+                            if not targets: targets = ["<file>"]
+                            
+                            builder_plan = RefactorPlan(
+                                file_path=Path(target_file_str),
+                                edit_targets=targets,
+                                intent=schema_plan.description,
+                                condition=f"Refactor to {schema_plan.description}",
+                                context={},
+                                language="python",
+                                priority=getattr(schema_plan, 'priority', 1)
+                            )
+                            plans.append(builder_plan)
+                    except Exception as e:
+                        logger.error(f"Failed to generate plan for {file_path}: {e}")
         
         else:
-            # No specific files - search graph for relevant code
-            # This would use semantic search or keyword matching
-            logger.info("No target files specified - searching graph")
-            
-            # TODO: Implement semantic search in graph
-            # For now, return empty list
-            logger.warning("Graph-wide search not yet implemented")
+            # Graph-wide logic (placeholder for future expansion)
+            logger.warning("Graph-wide search not yet implemented - please specify target files")
         
         return plans
     
@@ -820,6 +836,79 @@ class OuroborosCodeGenerator:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.close()
+
+    def _ensure_file_indexed(self, file_path: str):
+        """
+        Check if file is in graph, if not index it.
+        """
+        try:
+            # Check if exists (using simple query as proper check)
+            # Note: relying on retriever finding ANY node for this file
+            nodes = self.retriever.find_nodes("File", {"path": file_path})
+            if nodes:
+                return
+
+            logger.info(f"Auto-indexing missing file: {file_path}")
+            
+            # Parse and index
+            from src.librarian.parser import CodeParser
+            import hashlib
+            
+            parser = CodeParser()
+            # Handle Windows paths vs Neo4j paths if needed, but here simple read
+            content = Path(file_path).read_text(encoding='utf-8')
+            result = parser.parse_file(file_path)
+            
+            checksum = hashlib.md5(content.encode()).hexdigest()
+            
+            # Create file node
+            self.graph_db.create_file_node(
+                path=file_path,
+                language='python',
+                content=content,
+                context_checksum=checksum
+            )
+            
+            # Create function nodes
+            for func in result['functions']:
+                self.graph_db.create_function_node(
+                    name=func.name,
+                    signature=func.signature,
+                    file_path=file_path,
+                    start_line=func.start_line,
+                    end_line=func.end_line,
+                    is_async=func.is_async,
+                    is_exported=func.is_exported
+                )
+                
+            # Create class nodes
+            for cls in result['classes']:
+                self.graph_db.create_class_node(
+                    name=cls.name,
+                    fully_qualified_name=cls.fully_qualified_name,
+                    file_path=file_path,
+                    start_line=cls.start_line,
+                    end_line=cls.end_line,
+                    is_exported=cls.is_exported
+                )
+                
+                # Methods
+                for method in cls.methods:
+                    self.graph_db.create_function_node(
+                        name=method.name,
+                        signature=method.signature,
+                        file_path=file_path,
+                        start_line=method.start_line,
+                        end_line=method.end_line,
+                        parent_class=cls.name,
+                        is_async=method.is_async,
+                        is_exported=method.is_exported
+                    )
+            
+            logger.info(f"Successfully auto-indexed {file_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to auto-index {file_path}: {e}")
 
 
 # Example usage

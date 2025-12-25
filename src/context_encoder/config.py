@@ -22,7 +22,7 @@ class JambaConfig:
     """Configuration for AI21 Jamba-1.5-Mini model."""
     
     # Model Configuration
-    model_name: str = "jamba-mini"  # AI21 model name (jamba-mini or jamba-large)
+    model_name: str = "jamba-1.5-mini"  # AI21 model name
     context_window: int = 256_000  # 256k tokens
     max_output_tokens: int = 4096  # For context summary
     temperature: float = 0.3  # Low temperature for deterministic summaries

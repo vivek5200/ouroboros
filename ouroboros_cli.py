@@ -145,6 +145,20 @@ def refactor(
         border_style="blue"
     ))
     
+    # Transparency warnings
+    warnings = []
+    if mock_mode:
+        warnings.append("[yellow]⚠️  MOCK MODE: Using simulated responses (no real API calls)[/yellow]")
+    if not safe_mode:
+        warnings.append("[red]⚠️  SAFETY GATE DISABLED: Syntax validation and semantic analysis are OFF[/red]")
+    
+    if warnings:
+        console.print(Panel(
+            "\n".join(warnings),
+            title="[bold yellow]⚠️  Warnings[/bold yellow]",
+            border_style="yellow"
+        ))
+    
     # Validate inputs
     if not target and not functions:
         console.print("[red]Error: Must specify at least one --target file or --function[/red]")
@@ -185,6 +199,22 @@ def refactor(
             )
             
             progress.update(init_task, completed=True)
+            
+            # Show model configuration transparency
+            if config == "mock" or mock_mode:
+                console.print("\n[yellow]📝 Using MOCK diffusion model (no real generation)[/yellow]")
+            else:
+                config_map = {
+                    "fast": "Qwen2.5-Coder-1.5B (20 steps)",
+                    "balanced": "Qwen2.5-Coder-7B (50 steps)",
+                    "quality": "Qwen2.5-Coder-14B (100 steps)"
+                }
+                console.print(f"\n[cyan]🤖 Model: {config_map.get(config, config)}[/cyan]")
+            
+            if safe_mode:
+                console.print("[green]🛡️  Safety Gate: ENABLED (syntax + semantic validation)[/green]")
+            else:
+                console.print("[red]⚠️  Safety Gate: DISABLED[/red]")
     
     except Exception as e:
         console.print(f"[red]Failed to initialize: {e}[/red]")

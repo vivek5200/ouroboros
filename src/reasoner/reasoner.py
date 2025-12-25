@@ -66,8 +66,12 @@ class Reasoner:
         self.retriever = GraphRetriever(self.db)
         
         # Context handling (Phase 2: Serializer, Phase 3: Encoder)
-        self.serializer = ContextSerializer(format="markdown")  # Fast, for <50k tokens
-        self.encoder = ContextEncoder()  # Phase 3: Jamba compression for 200k+ tokens
+        self.serializer = ContextSerializer(format="markdown")
+        try:
+            self.encoder = ContextEncoder()
+        except Exception as e:
+            logger.warning(f"ContextEncoder init failed (skipping deep context): {e}")
+            self.encoder = None
         
         self.dependency_analyzer = DependencyAnalyzer(self.db)
         

@@ -31,6 +31,7 @@ from .config import DiffusionConfig, BALANCED_CONFIG
 from .diffusion_model import DiscreteDiffusionModel, DiffusionSample
 from .masking import ASTMasker, MaskedSpan
 from ..utils.syntax_validator import SyntaxValidator, ValidationResult
+from ..utils.semantic_analyzer import SemanticAnalyzer, SemanticResult
 from ..utils.provenance_logger import ProvenanceLogger
 
 logger = logging.getLogger(__name__)
@@ -208,8 +209,10 @@ class Builder:
         # Initialize syntax validator for safety gate
         if enable_safety_gate:
             self.validator = SyntaxValidator()
+            self.semantic_analyzer = SemanticAnalyzer()
         else:
             self.validator = None
+            self.semantic_analyzer = None
     
     def generate_patch(
         self,
@@ -288,8 +291,9 @@ class Builder:
                     language=plan.language
                 )
             
-            # Safety Gate: Validate syntax before accepting
+            # Safety Gate: Validate syntax AND semantics before accepting
             if self.enable_safety_gate and self.validator:
+                # Step 1: Syntax validation
                 validation_result = self.validator.validate(
                     diffusion_sample.generated_code,
                     language=plan.language
@@ -297,12 +301,8 @@ class Builder:
                 
                 last_validation_result = validation_result
                 
-                if validation_result.is_valid:
-                    # Valid syntax - accept and break
-                    logger.info(f"✓ Syntax validation passed on attempt {retry_count + 1}")
-                    break
-                else:
-                    # Invalid syntax - retry if attempts remain
+                if not validation_result.is_valid:
+                    # Invalid syntax - retry
                     retry_count += 1
                     logger.warning(
                         f"✗ Syntax validation failed on attempt {retry_count}. "
@@ -311,18 +311,57 @@ class Builder:
                     
                     if retry_count <= max_retries:
                         logger.info(f"Self-healing: Retrying with enhanced condition...")
-                        # Enhance condition with error feedback for retry
                         enhanced_condition = (
                             f"{plan.condition}\n\n"
                             f"IMPORTANT: Previous attempt had syntax errors. "
                             f"Fix these issues: {validation_result.error_summary}"
                         )
                         plan.condition = enhanced_condition
+                        continue
                     else:
                         logger.error(
                             f"✗ Max retries ({max_retries}) exceeded. "
                             f"Final error: {validation_result.error_summary}"
                         )
+                        break
+                
+                # Step 2: Semantic analysis (if syntax is valid)
+                semantic_result = None
+                if self.semantic_analyzer:
+                    semantic_result = self.semantic_analyzer.analyze(
+                        diffusion_sample.generated_code,
+                        language=plan.language
+                    )
+                    
+                    if not semantic_result.is_valid:
+                        # Semantic errors found - retry
+                        retry_count += 1
+                        logger.warning(
+                            f"✗ Semantic analysis failed on attempt {retry_count}. "
+                            f"Errors: {semantic_result.error_summary}"
+                        )
+                        
+                        if retry_count <= max_retries:
+                            logger.info(f"Self-healing: Retrying with semantic feedback...")
+                            enhanced_condition = (
+                                f"{plan.condition}\n\n"
+                                f"IMPORTANT: Previous attempt had semantic errors. "
+                                f"Fix these issues: {semantic_result.error_summary}"
+                            )
+                            plan.condition = enhanced_condition
+                            continue
+                        else:
+                            logger.error(
+                                f"✗ Max retries ({max_retries}) exceeded. "
+                                f"Final semantic error: {semantic_result.error_summary}"
+                            )
+                            break
+                
+                # Both syntax and semantics valid - accept
+                logger.info(f"✓ Syntax and semantic validation passed on attempt {retry_count + 1}")
+                if semantic_result:
+                    logger.info(f"  Checker: {semantic_result.checker_used}, Warnings: {len(semantic_result.warnings)}")
+                break
             else:
                 # Safety gate disabled - accept immediately
                 break

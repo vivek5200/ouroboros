@@ -248,7 +248,7 @@ def load_config_from_env() -> ReasonerConfig:
         REASONER_ENABLE_CACHING: Enable prompt caching (true|false)
     """
     
-    provider_str = os.getenv("REASONER_PROVIDER", "claude").lower()
+    provider_str = os.getenv("REASONER_PROVIDER", "gemini").lower()
     fallback_str = os.getenv("REASONER_FALLBACK", "jamba").lower()
     
     provider = LLMProvider(provider_str)
